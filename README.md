@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project demonstrates a Terraform-managed static website hosted on AWS S3, built as the foundation of a larger cloud architecture portfolio.
+This project demonstrates a Terraform-managed static website hosted on AWS, built as the foundation of a larger cloud architecture portfolio.
 
 The goal is not just to host a website, but to showcase:
 
@@ -11,32 +11,45 @@ The goal is not just to host a website, but to showcase:
 - Security and access control realities
 - Repeatable, version-controlled cloud deployments
 
-The architecture intentionally starts simple and is designed to evolve into a production-grade setup with CloudFront, HTTPS, and tighter security controls.
+The architecture evolved from a simple public S3 bucket to a production-grade setup with CloudFront, HTTPS, and private S3 origin.
 
 ## Architecture
 
-**Current architecture (Phase 3):**
+**Current architecture (Phase 4):**
 
-- Amazon S3 for static website hosting
-- Terraform for infrastructure provisioning and state management
-- Public S3 bucket policy (required for S3 website endpoints)
+- Amazon S3 as private origin (all public access blocked)
+- CloudFront distribution for CDN and HTTPS
+- Origin Access Control (OAC) for secure S3 access
 - Versioning enabled on the S3 bucket
 - HTML assets (index.html, error.html) managed via Terraform
 
-**Planned evolution:**
+**Architecture diagram:**
 
-- CloudFront distribution
-- HTTPS via AWS Certificate Manager
-- Private S3 bucket with origin access control
-- Security headers and caching strategy
-- CI/CD for automated updates
+```
+User Request (HTTPS)
+        │
+        ▼
+┌─────────────────────┐
+│    CloudFront CDN   │
+│  (HTTPS, caching)   │
+└─────────────────────┘
+        │
+        ▼ (OAC - signed requests)
+┌─────────────────────┐
+│   S3 Bucket         │
+│   (private)         │
+│   - index.html      │
+│   - error.html      │
+└─────────────────────┘
+```
 
 ## AWS Services Used
 
 | Service | Purpose |
 |---------|---------|
-| **Amazon S3** | Static website hosting, bucket versioning, bucket policies and public access configuration |
-| **IAM** | Access control and permissions |
+| **Amazon S3** | Private origin bucket, versioning, bucket policies |
+| **CloudFront** | CDN, HTTPS termination, caching, Origin Access Control |
+| **IAM** | Access control, bucket policies, OAC permissions |
 | **AWS STS** | Identity verification during deployment |
 | **Terraform** | Infrastructure as Code, local state management |
 
@@ -80,23 +93,26 @@ terraform plan
 terraform apply
 ```
 
-After apply completes, Terraform outputs the S3 website endpoint.
+After apply completes, Terraform outputs the CloudFront domain name.
 
 ## Live Site
 
-The site is served directly from the S3 website endpoint:
+The site is served via CloudFront with HTTPS:
 
 ```
-http://<bucket-name>.s3-website-<region>.amazonaws.com
+https://<distribution-id>.cloudfront.net
 ```
 
 *(The exact URL is provided by Terraform outputs.)*
+
+The S3 bucket is private and returns 403 if accessed directly — this is intentional.
 
 ## Lessons Learned
 
 This project surfaced several real-world cloud considerations:
 
-- S3 static website hosting requires explicit public access
+- S3 static website hosting requires explicit public access (Phase 3)
+- CloudFront + OAC is the secure alternative to public S3 buckets (Phase 4)
 - Account-level and bucket-level S3 public access controls are separate
 - Terraform state is critical and must be protected
 - AWS credential management is a common operational failure point
@@ -108,9 +124,10 @@ These are the same issues encountered in real production environments.
 
 Planned next steps for this project:
 
-- [ ] Add CloudFront distribution
-- [ ] Enable HTTPS with ACM
-- [ ] Restrict S3 bucket to private access
+- [x] Add CloudFront distribution
+- [x] Enable HTTPS (via CloudFront default certificate)
+- [x] Restrict S3 bucket to private access
+- [ ] Add custom domain with ACM certificate
 - [ ] Implement security headers
 - [ ] Add CI/CD for automated deployments
 - [ ] Separate environments (dev/prod)
