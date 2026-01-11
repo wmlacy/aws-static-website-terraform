@@ -59,7 +59,6 @@ resource "aws_s3_bucket_versioning" "versioning" {
   }
 }
 
-
 resource "aws_s3_object" "index_html" {
   bucket       = aws_s3_bucket.site.id
   key          = "index.html"
@@ -79,33 +78,78 @@ resource "aws_s3_object" "error_html" {
 resource "aws_s3_bucket_public_access_block" "site" {
   bucket = aws_s3_bucket.site.id
 
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
-data "aws_iam_policy_document" "site_public" {
-  statement {
-    sid = "AllowPublicRead"
+resource "aws_cloudfront_origin_access_control" "oac" {
+  name                              = "oac-${aws_s3_bucket.site.bucket}"
+  description                       = "OAC for S3 origin"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
 
-    principals {
-      type        = "AWS"
-      identifiers = ["*"]
+resource "aws_cloudfront_distribution" "cdn" {
+  enabled             = true
+  default_root_object = "index.html"
+
+  origin {
+    domain_name              = aws_s3_bucket.site.bucket_regional_domain_name
+    origin_id                = "s3-origin-${aws_s3_bucket.site.bucket}"
+    origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
+  }
+
+  default_cache_behavior {
+    target_origin_id       = "s3-origin-${aws_s3_bucket.site.bucket}"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET", "HEAD"]
+    cached_methods  = ["GET", "HEAD"]
+
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
     }
+  }
 
-    actions = [
-      "s3:GetObject"
-    ]
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
 
-    resources = [
-      "${aws_s3_bucket.site.arn}/*"
-    ]
+  viewer_certificate {
+    cloudfront_default_certificate = true
   }
 }
 
-resource "aws_s3_bucket_policy" "site_public" {
-  bucket = aws_s3_bucket.site.id
-  policy = data.aws_iam_policy_document.site_public.json
+data "aws_iam_policy_document" "allow_cloudfront_read" {
+  statement {
+    sid = "AllowCloudFrontRead"
 
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+
+    actions = ["s3:GetObject"]
+
+    resources = ["${aws_s3_bucket.site.arn}/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.cdn.arn]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "allow_cloudfront_read" {
+  bucket = aws_s3_bucket.site.id
+  policy = data.aws_iam_policy_document.allow_cloudfront_read.json
 }
